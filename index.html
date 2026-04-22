@@ -2,50 +2,128 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Image to MP4 Converter</title>
-    <!-- Using a more reliable CDN for the latest stable version -->
-    <script src="https://jsdelivr.net"></script>
-    <script src="https://jsdelivr.net"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image to MP4 | Dark Mode</title>
+    
+    <!-- 1. CRITICAL: Load Service Worker first for GitHub Pages -->
     <script src="coi-serviceworker.js"></script>
 
+    <!-- 2. CRITICAL: CDN Scripts with crossorigin attribute -->
+    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+
     <style>
-        body { font-family: sans-serif; max-width: 600px; margin: 50px auto; text-align: center; }
-        #log { margin-top: 20px; white-space: pre-wrap; text-align: left; background: #eee; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; }
-        #output-video { margin-top: 20px; display: none; width: 100%; border: 1px solid #ccc; }
-        .error { color: red; font-weight: bold; }
+        :root {
+            --bg: #121212;
+            --card-bg: #1e1e1e;
+            --text: #e0e0e0;
+            --accent: #bb86fc;
+            --accent-hover: #9965f4;
+            --border: #333;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+            margin: 0;
+        }
+
+        .container {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            width: 100%;
+            max-width: 500px;
+            border: 1px solid var(--border);
+        }
+
+        h2 { color: var(--accent); margin-top: 0; }
+
+        input[type="file"] {
+            display: block;
+            width: 100%;
+            margin: 20px 0;
+            padding: 10px;
+            background: #252525;
+            border: 1px dashed var(--border);
+            border-radius: 6px;
+            color: #aaa;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover { background-color: var(--accent-hover); }
+
+        #log {
+            margin-top: 20px;
+            background: #000;
+            color: #0f0;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 15px;
+            height: 120px;
+            overflow-y: auto;
+            border-radius: 6px;
+            border: 1px solid #333;
+            text-align: left;
+        }
+
+        video {
+            margin-top: 20px;
+            width: 100%;
+            border-radius: 8px;
+            display: none;
+            border: 1px solid var(--border);
+        }
+
+        .status-msg { font-size: 0.85em; color: #888; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
-    <h2>Image to MP4 Converter</h2>
-    <div id="security-check"></div>
-    
-    <input type="file" id="uploader" multiple accept="image/*">
-    <button id="convert-btn">Create MP4</button>
-    
-    <div id="log">Status: Waiting for files...</div>
-    <video id="output-video" controls></video>
+    <div class="container">
+        <h2>Image to MP4</h2>
+        <p class="status-msg">Images must have numbers in filenames (e.g. img1.jpg)</p>
+        
+        <input type="file" id="uploader" multiple accept="image/*">
+        <button id="convert-btn">Generate Video</button>
+        
+        <div id="log">Ready to process...</div>
+        <video id="output-video" controls></video>
+    </div>
 
     <script>
-        // Check for Cross-Origin Isolation (Required for SharedArrayBuffer)
-        if (!window.crossOriginIsolated) {
-            document.getElementById('security-check').innerHTML = 
-                '<p class="error">⚠️ Warning: Page is not Cross-Origin Isolated. FFmpeg may fail. <br>' +
-                'Please run this from a local server (localhost) or HTTPS.</p>';
-        }
-
         const { FFmpeg } = FFmpegWASM;
         const { fetchFile } = FFmpegUtil;
         let ffmpeg = null;
 
         const logEl = document.getElementById('log');
-        const log = (msg) => { logEl.innerText += `\n[${new Date().toLocaleTimeString()}] ${msg}`; logEl.scrollTop = logEl.scrollHeight; };
+        const log = (msg) => {
+            logEl.innerHTML += `<div>> ${msg}</div>`;
+            logEl.scrollTop = logEl.scrollHeight;
+        };
 
         document.getElementById('convert-btn').addEventListener('click', async () => {
             const files = Array.from(document.getElementById('uploader').files);
-            if (files.length === 0) return alert("Please select images first!");
+            if (files.length === 0) return alert("Please select images!");
 
-            // 1. Sort files by number in filename
+            // Sort files by number in name
             files.sort((a, b) => {
                 const numA = parseInt(a.name.match(/\d+/) || 0);
                 const numB = parseInt(b.name.match(/\d+/) || 0);
@@ -53,22 +131,21 @@
             });
 
             try {
-                if (ffmpeg === null) {
+                if (!ffmpeg) {
                     ffmpeg = new FFmpeg();
                     ffmpeg.on('log', ({ message }) => log(message));
-                    log("Loading FFmpeg core...");
+                    log("Loading FFmpeg engine...");
                     await ffmpeg.load({
                         coreURL: 'https://jsdelivr.net',
                     });
                 }
 
-                // 2. Write files to FFmpeg's virtual file system
+                log(`Processing ${files.length} images...`);
                 for (let i = 0; i < files.length; i++) {
-                    const fileName = `img${i}.png`;
-                    await ffmpeg.writeFile(fileName, await fetchFile(files[i]));
+                    await ffmpeg.writeFile(`img${i}.png`, await fetchFile(files[i]));
                 }
 
-                log("Starting conversion (1 frame per second)...");
+                log("Encoding MP4 (1 second per frame)...");
                 await ffmpeg.exec([
                     '-framerate', '1', 
                     '-i', 'img%d.png', 
@@ -77,14 +154,14 @@
                     'output.mp4'
                 ]);
 
-                // 3. Output results
                 const data = await ffmpeg.readFile('output.mp4');
                 const video = document.getElementById('output-video');
                 video.src = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
                 video.style.display = 'block';
-                log("Success! Your video is ready.");
+                log("Done! Check video below.");
+
             } catch (e) {
-                log("ERROR: " + e.message);
+                log("FATAL ERROR: " + e.message);
                 console.error(e);
             }
         });
