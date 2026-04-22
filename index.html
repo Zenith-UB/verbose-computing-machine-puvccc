@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Image to MP4 Converter</title>
+    <!-- Using a more reliable CDN for the latest stable version -->
+    <script src="https://jsdelivr.net"></script>
+    <script src="https://jsdelivr.net"></script>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 50px auto; text-align: center; }
+        #log { margin-top: 20px; white-space: pre-wrap; text-align: left; background: #eee; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; }
+        #output-video { margin-top: 20px; display: none; width: 100%; border: 1px solid #ccc; }
+        .error { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h2>Image to MP4 Converter</h2>
+    <div id="security-check"></div>
+    
+    <input type="file" id="uploader" multiple accept="image/*">
+    <button id="convert-btn">Create MP4</button>
+    
+    <div id="log">Status: Waiting for files...</div>
+    <video id="output-video" controls></video>
+
+    <script>
+        // Check for Cross-Origin Isolation (Required for SharedArrayBuffer)
+        if (!window.crossOriginIsolated) {
+            document.getElementById('security-check').innerHTML = 
+                '<p class="error">⚠️ Warning: Page is not Cross-Origin Isolated. FFmpeg may fail. <br>' +
+                'Please run this from a local server (localhost) or HTTPS.</p>';
+        }
+
+        const { FFmpeg } = FFmpegWASM;
+        const { fetchFile } = FFmpegUtil;
+        let ffmpeg = null;
+
+        const logEl = document.getElementById('log');
+        const log = (msg) => { logEl.innerText += `\n[${new Date().toLocaleTimeString()}] ${msg}`; logEl.scrollTop = logEl.scrollHeight; };
+
+        document.getElementById('convert-btn').addEventListener('click', async () => {
+            const files = Array.from(document.getElementById('uploader').files);
+            if (files.length === 0) return alert("Please select images first!");
+
+            // 1. Sort files by number in filename
+            files.sort((a, b) => {
+                const numA = parseInt(a.name.match(/\d+/) || 0);
+                const numB = parseInt(b.name.match(/\d+/) || 0);
+                return numA - numB;
+            });
+
+            try {
+                if (ffmpeg === null) {
+                    ffmpeg = new FFmpeg();
+                    ffmpeg.on('log', ({ message }) => log(message));
+                    log("Loading FFmpeg core...");
+                    await ffmpeg.load({
+                        coreURL: 'https://jsdelivr.net',
+                    });
+                }
+
+                // 2. Write files to FFmpeg's virtual file system
+                for (let i = 0; i < files.length; i++) {
+                    const fileName = `img${i}.png`;
+                    await ffmpeg.writeFile(fileName, await fetchFile(files[i]));
+                }
+
+                log("Starting conversion (1 frame per second)...");
+                await ffmpeg.exec([
+                    '-framerate', '1', 
+                    '-i', 'img%d.png', 
+                    '-c:v', 'libx264', 
+                    '-pix_fmt', 'yuv420p', 
+                    'output.mp4'
+                ]);
+
+                // 3. Output results
+                const data = await ffmpeg.readFile('output.mp4');
+                const video = document.getElementById('output-video');
+                video.src = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
+                video.style.display = 'block';
+                log("Success! Your video is ready.");
+            } catch (e) {
+                log("ERROR: " + e.message);
+                console.error(e);
+            }
+        });
+    </script>
+</body>
+</html>
